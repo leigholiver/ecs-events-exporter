@@ -1,0 +1,5 @@
+test-support/
+config.yaml
+Dockerfile
+.git
+.gitignore
