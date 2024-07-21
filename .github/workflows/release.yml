@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.new_release_version }}
+      publish: ${{ steps.version.outputs.new_release_published }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Semantic Release
+        id: version
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          dry_run: true
+          semantic_version: 24.0.0
+          extra_plugins: |
+            @semantic-release/commit-analyzer@^13.0.0
+            @semantic-release/release-notes-generator@^14.0.0
+            @semantic-release/github@^10.0.0
+            conventional-changelog-conventionalcommits@^8.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: needs.version.outputs.publish == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build Go application
+        run: go build .
+
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          semantic_version: 24.0.0
+          extra_plugins: |
+            @semantic-release/commit-analyzer@^13.0.0
+            @semantic-release/release-notes-generator@^14.0.0
+            @semantic-release/github@^10.0.0
+            conventional-changelog-conventionalcommits@^8.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    if: needs.version.outputs.publish == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build and push docker image
+        run: |
+          IMAGE="ghcr.io/$GITHUB_REPOSITORY"
+          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u $GITHUB_REPOSITORY_OWNER --password-stdin
+          docker build -t $IMAGE .
+
+          for VERSION in "$IMAGE:${{ needs.version.outputs.version }}" "$IMAGE:latest"; do
+            docker tag $IMAGE $VERSION
+            docker push $VERSION
+          done
